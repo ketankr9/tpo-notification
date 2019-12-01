@@ -1,0 +1,104 @@
+#!/usr/bin/python3
+import requests
+import sys
+from bs4 import BeautifulSoup as bs
+import traceback
+import pickle
+import os
+from pathlib import Path, PurePath
+from time import sleep
+
+url = "https://www.placement.iitbhu.ac.in/forum/c/notice-board/2019-20/"
+
+class color:
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[91m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'
+
+
+
+userAgent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:68.0) Gecko/20100101 Firefox/68.0'
+userAgent2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.87 Safari/537.36"
+headers = {
+    'upgrade-insecure-requests': "1",
+    'user-agent': userAgent2,
+    'sec-fetch-mode': "navigate",
+    'sec-fetch-user': "?1",
+    'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+    'cache-control': "no-cache"
+    }
+
+host = "https://www.placement.iitbhu.ac.in"
+def cols(x):
+    y = x.findAll('td')
+    postedOn = y[3].text
+    topic = y[0].text
+    views = y[2].text
+    return "{:<50}".format(topic[:50])+"\t"+"{:<18}".format(postedOn)#+"\t+"+"{:<4}".format(views)
+
+def getText(parent):
+    return '\n'.join(parent.find_all(text=True, recursive=True)).strip()
+
+def getAttachment(soup):
+    return soup.find('div', {'class':'attachments'}).find('a')['href']
+
+def getContent(soup):
+    content = soup.find('tbody').find('tr').findAll('td')[1]
+    try:
+        attachment = getAttachment(soup)
+        content.find('div', {'class':'attachments'}).decompose()
+    except:
+        attachment = None
+    return getText(content), attachment
+
+def dump_rows(rows, filename=str(PurePath(Path.home(), '.tpo/page1.pkl'))):
+    new_list = []
+    for r in rows:
+        # print("\n*********\n", r.find('a')['href'])
+        new_list.append(r.find('a')['href'])
+
+    try:
+        with open(filename, 'rb') as f:
+            old_list = pickle.load(f)
+    except:
+        old_list = []
+    with open(filename, 'wb') as f:
+        pickle.dump(new_list, f)
+
+    # print(set(new_list)-set(old_list))
+    diff = []
+    for x in new_list:
+        if x not in old_list:
+            diff.append(x.split("/")[-2])
+    # diff.reverse()
+    return diff
+
+def main():
+    try:
+        querystring = {"page":"1" if len(sys.argv) == 1 else sys.argv[1]}
+        with open(str(PurePath(Path.home(), '.tpo/conf.txt')), 'r') as file_:
+            cookies = {'sessionid':file_.read().strip()}
+
+        # enabling cookie - local time, disabling cookie - UTC time
+        # cookies is not necessary
+        response = requests.request("GET", url, headers=headers, params=querystring, cookies=cookies)
+        rows = bs(response.text, 'lxml').find('tbody').findAll('tr')
+
+        diff = dump_rows(rows)
+        if len(diff) != 0:
+            os.system('''env DISPLAY=:0 /usr/bin/notify-send -u CRITICAL -t 0 -a "TPO" "%d new TPO:%s"'''%(len(diff), diff[0]))
+
+    except Exception as e:
+        print("TPO Error", e)
+        traceback.print_exc()
+
+while True:
+    main()
+    sleep(15)

@@ -1,0 +1,162 @@
+#!/usr/bin/python3
+import requests, sys
+from bs4 import BeautifulSoup as bs
+import argparse
+from pathlib import Path, PurePath
+import pickle
+
+my_parser = argparse.ArgumentParser(description='Company Visit')
+
+# Add the arguments
+my_parser.add_argument('--dept',
+                       metavar='deptCode',
+                       type=str,
+                       default="",
+                       help='cse eee ece mat cer che civ mec met min phe bce bme mst chy phy')
+my_parser.add_argument('--old',
+                       action='store_true',
+                       help='2019 comp visit')
+my_parser.add_argument('--detail',
+                       action='store_true',
+                       help='print only names')
+my_parser.add_argument('--name',
+                       metavar='company',
+                       type=str,
+                       default = "",
+                       help='name of the company')
+my_parser.add_argument('--star','-s',
+                       metavar='Num',
+                       type=int,
+                       default=-2,
+                       help='Star a company')
+# Execute the parse_args() method
+args = my_parser.parse_args()
+
+url = "https://www.placement.iitbhu.ac.in/company/calendar"
+baseurl = "https://www.placement.iitbhu.ac.in"
+querystring = {"page_size":"1000"}
+
+headers = {
+    'upgrade-insecure-requests': "1",
+    'user-agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.87 Safari/537.36",
+    'sec-fetch-mode': "navigate",
+    'sec-fetch-user': "?1",
+    'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+    'cache-control': "no-cache",
+    'postman-token': "750cfae9-1b1b-2a3b-8d3f-1bdfc79b948c"
+    }
+
+def getText(parent, sep='\n'):
+    return sep.join([x.strip() for x in parent.find_all(text=True, recursive=True)]).strip()
+
+def get_eligibility(y):
+    # x = y.select('span.x')[0].get_text()
+    # xii = y.select('span.xii')[0].get_text()
+    arr = []
+    try:
+        for i in range(6):
+            cgpa = y.select('span.cgpa')[i].get_text()
+            course = getText(y.select('span.course')[i], sep=" ")
+            dept = getText(y.select('p.dept')[i], sep=' ')
+            arr.append([cgpa, course, dept])
+    except:
+        pass
+    return "\n_______\n".join(["\n".join(x) for x in arr])
+
+def get_details(y):
+    ret = ""
+    for p in y.findAll('p', recursive=False):
+        ret += "\n" + getText(p, sep=' ')
+    return ret.strip()
+
+def get_remarks(y):
+    ret = ""
+    package = y.select('div.package.table-responsive')[0].select('tbody > tr')
+    for p in package:
+        ret += "\n" + getText(p, "\t")
+    ret += "\n" + '_'*30
+    jd = y.select('p.jd > i > a')[0]['href']
+    if "https://www.placement.iitbhu.ac.in/?filename=" != jd and "/?filename=" != jd:
+        ret += "\nJD: " +(baseurl if baseurl not in jd else "")+ jd
+    if len(y.select('div.modal-dialog'))  == 1:
+        ret += "\n" + getText(y.select('div.modal-dialog')[0], '\n')
+    else:
+        ret += "\n" + getText(y.select('div.remark')[0], '\n')
+    return ret.strip()
+
+def col_detail(cols):
+    eli = get_eligibility(cols[1])
+    det = get_details(cols[2])
+    rem = get_remarks(cols[3])
+    return [eli, det, rem]
+
+def name_profile(x):
+    name = x.select('p.company_name')[0].get_text()
+    profile = x.select('p.company_profile')[0].get_text()
+    return (name, profile)
+
+def load_starred():
+    try:
+        with open('/home/ketankr9/.tpo/starred'+ ('Old.pkl' if args.old else 'New.pkl'), 'rb') as handle:
+            starredSet = pickle.load(handle)
+    except:
+        starredSet = set()
+    return starredSet
+
+def update_starred(name, starredSet):
+    if name in starredSet:
+        print(name+" removed :/")
+        starredSet.remove(name)
+    else:
+        print(name+" starred :)")
+        starredSet.add(name)
+    with open('/home/ketankr9/.tpo/starred'+ ('Old.pkl' if args.old else 'New.pkl'), 'wb') as handle:
+        pickle.dump(starredSet, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def main():
+    starred = load_starred()
+    i = 0
+    for x in rows[::-1]:
+        i += 1
+        name, profile = name_profile(x)
+        cols = x.findAll('div', recursive=False)
+        eli, det, rem = col_detail(cols)
+        
+        if args.star == 0  and name not in starred:
+            continue
+        elif args.star > 0:
+            if args.star == i:
+                update_starred(name, starred)
+            continue
+        elif args.star == -1 and name in starred:
+        	continue
+        if args.name == "" and not args.detail and args.dept in eli:
+            print(str(i) + " \033[1;48;5;21m"+("★" if name in starred else "")+name+("★" if name in starred else "")+"\033[0m\t" + profile)
+            continue
+
+        if args.name.lower() not in name.lower():
+            i -= 1
+            continue
+        if args.dept not in eli:
+            i -= 1
+            continue
+
+        print("+-"*30+"\n\n"+str(i)+" \033[1;48;5;21m"+("★" if name in starred else "")+name+("★" if name in starred else "")+"\033[0m > *" + profile+"*"+("\n"
+        +("\n"+"_"*30+"\n").join([
+            eli,
+            det,
+            rem])))
+
+with open(str(PurePath(Path.home(), '.tpo/conf.txt')), 'r') as file_:
+    cookies = {'sessionid':file_.read().strip()}
+
+if args.old:
+    response = open('/usr/local/lib/tpo/companyVisit.html', 'rb')
+else:
+    response = requests.request("GET", url, headers=headers, params=querystring, cookies=cookies).text
+
+soup = bs(response, 'lxml')
+rows = soup.select('#master_wrapper > div.calender > div.row.company')
+
+main()
+    

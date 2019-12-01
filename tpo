@@ -1,0 +1,126 @@
+#!/usr/bin/python3
+import requests
+import sys
+from bs4 import BeautifulSoup as bs
+import traceback
+import argparse
+from pathlib import Path, PurePath
+
+url = "https://www.placement.iitbhu.ac.in/forum/c/notice-board/2019-20/"
+
+class color:
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[91m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'
+
+
+
+userAgent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:68.0) Gecko/20100101 Firefox/68.0'
+userAgent2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.87 Safari/537.36"
+headers = {
+    'upgrade-insecure-requests': "1",
+    'user-agent': userAgent2,
+    'sec-fetch-mode': "navigate",
+    'sec-fetch-user': "?1",
+    'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+    'cache-control': "no-cache"
+    }
+
+host = "https://www.placement.iitbhu.ac.in"
+def cols(x):
+    y = x.findAll('td')
+    postedOn = y[3].text
+    topic = y[0].text
+    views = y[2].text
+    return "{:<50}".format(topic[:50])+"\t"+"{:<18}".format(postedOn)#+"\t+"+"{:<4}".format(views)
+
+def getText(parent):
+    return '\n'.join(parent.find_all(text=True, recursive=True)).strip()
+
+def getAttachment(soup):
+    return soup.find('div', {'class':'attachments'}).find('a')['href']
+
+def getContent(soup):
+    content = soup.find('tbody').find('tr').findAll('td')[1]
+    try:
+        attachment = getAttachment(soup)
+        content.find('div', {'class':'attachments'}).decompose()
+    except:
+        attachment = None
+    return getText(content), attachment
+
+def printPosti(url_):
+    resp = requests.request("GET", url_, headers=headers, cookies=cookies)
+    soup = bs(resp.text, 'lxml')
+
+    message, attachment = getContent(soup)
+
+    print("\n"+message)
+    if attachment:
+        # print(host+attachment)
+        print(color.BLUE + color.BOLD +"\nAttachment: " + color.END+ color.RED + color.UNDERLINE + host + attachment+color.END)
+
+
+
+my_parser = argparse.ArgumentParser(description='Gets the forum toipcs')
+
+# Add the arguments
+my_parser.add_argument('--page',
+                       metavar='Num',
+                       type=int,
+                       default=0,
+                       help='page number')
+my_parser.add_argument('--post','-p',
+                       metavar='Num',
+                       type=int,
+                       default=-1,
+                       help='post number(25 posts per page)')
+my_parser.add_argument('--last',
+                       action='store_true',
+                       help='latest post')
+my_parser.add_argument('--detail',
+                       action='store_true',
+                       help='print detail for a post')
+# Execute the parse_args() method
+args = my_parser.parse_args()
+
+try:
+    querystring = {"page":str(1 if args.page == 0 else args.page)}
+    with open(str(PurePath(Path.home(), '.tpo/conf.txt')), 'r') as file_:
+        cookies = {'sessionid':file_.read().strip()}
+    # enabling cookie - local time, disabling cookie - UTC time
+    # cookies is not necessary
+    response = requests.request("GET", url, headers=headers, params=querystring, cookies=cookies)
+
+    rows = bs(response.text, 'lxml').find('tbody').findAll('tr')
+
+    if args.post != -1 or args.last:
+        post = None
+        if args.post != -1:
+            post = rows[args.post-1]
+        else:
+            i = 0
+            while post == None or 'sticky' in post['class']:
+                post = rows[i]
+                i += 1
+        print("\033[1;48;5;21m" + cols(post) + '\033[0m')
+        if args.post != -1 or args.detail: 
+            printPosti(host+post.findAll('td')[0].find('a')['href'])
+    else:
+        for i, post in enumerate(rows):
+            # "\033[30;48;5;82m"
+            if args.page ==0 and not ('today' in cols(post) or 'ago' in cols(post) or 'yesterday' in cols(post)):
+                continue
+            print(("\033[1;48;5;21m" if 'today' in cols(post) or 'ago' in cols(post) else "") + "%2d"%(i+1)+" "+cols(post)+"\033[0m")
+            if args.detail:
+                printPosti(host+post.findAll('td')[0].find('a')['href'])
+except Exception as e:
+    print("TPO Error", e)
+    traceback.print_exc()

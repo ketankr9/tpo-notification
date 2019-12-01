@@ -1,0 +1,191 @@
+#!/usr/bin/python3
+import requests, sys
+from bs4 import BeautifulSoup as bs
+import argparse
+from pathlib import Path, PurePath
+import pickle
+
+url = "https://www.placement.iitbhu.ac.in/company/opportunities"
+baseurl = "https://www.placement.iitbhu.ac.in"
+mydept = ""
+
+my_parser = argparse.ArgumentParser(description='Company Visit')
+
+# Add the arguments
+my_parser.add_argument('--detail',
+                       action='store_true',
+                       help='print only names')
+my_parser.add_argument('--no-filter', '-n',
+                       action='store_true',
+                       help='No filter print All')
+my_parser.add_argument('--will', '-w',
+                       action='store_true',
+                       help='Willingness only')
+my_parser.add_argument('--name',
+                       metavar='company',
+                       type=str,
+                       default = "",
+                       help='name of the company')
+my_parser.add_argument('--star','-s',
+                       metavar='Num',
+                       type=int,
+                       default=-2,
+                       help='Star a company')
+
+# Execute the parse_args() method
+args = my_parser.parse_args()
+
+class color:
+   PURPLE = '\033[95m'
+   CYAN = '\033[96m'
+   DARKCYAN = '\033[36m'
+   BLUE = '\033[94m'
+   GREEN = '\033[92m'
+   YELLOW = '\033[93m'
+   RED = '\033[91m'
+   BOLD = '\033[1m'
+   UNDERLINE = '\033[4m'
+   END = '\033[0m'
+
+querystring = {"page_size":"1000"}
+
+headers = {
+    'upgrade-insecure-requests': "1",
+    'user-agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.87 Safari/537.36",
+    'sec-fetch-mode': "navigate",
+    'sec-fetch-user': "?1",
+    'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
+    'cache-control': "no-cache",
+    'postman-token': "750cfae9-1b1b-2a3b-8d3f-1bdfc79b948c"
+    }
+
+def getText(parent, sep='\n'):
+    return sep.join([x.strip() for x in parent.find_all(text=True, recursive=True)]).strip()
+
+def get_eligibility(y):
+    x = y.select('span.x')[0].get_text()
+    xii = y.select('span.xii')[0].get_text()
+    cgpa = y.select('span.cgpa')[0].get_text()
+    course = getText(y.select('span.course')[0], sep=" ")
+    dept = getText(y.select('p.dept')[0], sep=' ')
+    return "\n".join([x, xii, cgpa, course, dept])
+
+def get_details(y):
+    ret = ""
+    for p in y.findAll('p', recursive=False):
+        ret += "\n" + getText(p, sep=' ')
+    return ret.strip()
+
+def get_choice(y):
+    will = ""
+    p = y.findAll('p', recursive=False)
+    will = getText(p[0].find('span'))
+    if will == "No action taken":
+        will = color.RED + color.BOLD + color.UNDERLINE + will + color.END
+    elif will == "Willing":
+        will = color.BLUE + will + color.END
+    return will
+
+def get_date(y):
+    ret = y.find('p', {'class':'exam_date'}).get_text()
+    return ret[:5] + ret[10:]
+
+def col_detail(cols):
+    eli = get_eligibility(cols[1])
+    det = get_details(cols[2])
+    will = get_choice(cols[3])
+    imp_date = get_date(cols[2])
+    return [eli, det, will, imp_date]
+
+def name_profile(x):
+    name = x.select('p.company_name')[0].get_text()
+    profile = x.select('p.company_profile')[0].get_text()
+    will_dead = x.find('p').find('i').get_text().split(",")[1:]
+    will_dead = "".join([will_dead[0].strip()[:-4], will_dead[1].strip()])
+    return (name, profile, will_dead)
+
+def load_starred():
+    try:
+        with open('/home/ketankr9/.tpo/starredNew.pkl', 'rb') as handle:
+            starredSet = pickle.load(handle)
+    except:
+        starredSet = set()
+    return starredSet
+
+def update_starred(name, starredSet):
+    if name in starredSet:
+        print(name+" removed :/")
+        starredSet.remove(name)
+    else:
+        print(name+" starred :)")
+        starredSet.add(name)
+    with open('/home/ketankr9/.tpo/starredNew.pkl', 'wb') as handle:
+        pickle.dump(starredSet, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def main():
+    starred = load_starred()
+    i = 0
+    for x in rows:
+        name, profile, will_dead = name_profile(x)
+        cols = x.findAll('div', recursive=False)
+        eli, det, will, imp_date = col_detail(cols)
+        
+        if (len(sys.argv)==1 and "No" not in will) or (args.star == 0 and name not in starred):
+            continue
+        elif args.star > 0:
+            if args.star == i:
+                update_starred(name, starred)
+            continue
+        elif args.star == -1 and name in starred:
+        	continue
+        if args.will and "Willing" not in will:
+            continue
+
+        isStarred = name in starred
+        name, profile = name[:15], profile[:18]
+        
+        if "Unwilling" in will:
+            imp_date = ""
+        if isStarred:
+        	name = "★" + name + "★"
+        if len(profile) < 18:
+        	profile += " "*(18-len(profile))
+        if len(name) < 17:
+        	name += " "*(17-len(name))
+        i += 1
+        if 'Willing' in will:
+            will += " " 
+        if args.will:
+            will_dead = ""
+        
+        if args.name == "" and not args.detail and mydept in eli:
+            print(str(i) + " \033[1;48;5;21m"+
+                name+
+                color.END + "\t" + 
+                profile + 
+                "\t" + 
+                will + 
+                (("\t" +  will_dead + "\t") if not args.will else "") +   
+                imp_date)
+            continue
+
+        if args.name not in name.lower() or mydept not in eli:
+            continue
+
+        # print detail below 
+        print("+-"*30+"\n\n"+str(i)+" \033[1;48;5;21m"+("★" if isStarred else "")+name+("★" if isStarred else "")+"\033[0m > *" + profile+"*"+("\n"
+        +("\n"+"_"*30+"\n").join([
+            eli,
+            det
+            ])))
+
+with open(str(PurePath(Path.home(), '.tpo/conf.txt')), 'r') as file_:
+    cookies = {'sessionid':file_.read().strip()}
+
+response = requests.request("GET", url, headers=headers, params=querystring, cookies=cookies).text
+
+soup = bs(response, 'lxml')
+rows = soup.select('#master_wrapper > div.calender > div.row.company')
+
+main()
+    
